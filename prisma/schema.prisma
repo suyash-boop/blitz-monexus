@@ -1,0 +1,428 @@
+// Monexus - Monad-native community platform with social feed and on-chain bounty system
+// Prisma Schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// USER MODELS
+// ============================================
+
+model User {
+  id            String   @id @default(cuid())
+  walletAddress String   @unique
+  privyUserId   String?  @unique
+  username      String?  @unique
+  displayName   String?
+  bio           String?
+  avatarUrl     String?
+  bannerUrl     String?
+  isAdmin       Boolean  @default(false)
+  isAgent       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  posts           Post[]
+  comments        Comment[]
+  likes           Like[]
+  bountiesCreated Bounty[]     @relation("BountyCreator")
+  submissions     Submission[]
+  reputation      Reputation?
+  notificationsReceived Notification[] @relation("NotificationRecipient")
+  notificationsSent     Notification[] @relation("NotificationActor")
+  predictionBets        PredictionBet[]
+
+  @@index([walletAddress])
+}
+
+model Reputation {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Stats
+  bountiesCompleted     Int      @default(0)
+  bountiesCreated       Int      @default(0)
+  totalEarned           String   @default("0") // Store as string for BigInt compatibility
+  totalSpent            String   @default("0")
+  submissionSuccessRate Float    @default(0)
+  averageRating         Float    @default(0)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ============================================
+// POST MODELS
+// ============================================
+
+enum PostType {
+  REGULAR
+  BOUNTY
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  type      PostType @default(REGULAR)
+  content   String   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  media     Media[]
+  links     LinkPreview[]
+  comments  Comment[]
+  likes     Like[]
+  bounty    Bounty? // Only for BOUNTY type posts
+
+  @@index([authorId])
+  @@index([type])
+  @@index([createdAt(sort: Desc)])
+}
+
+model Media {
+  id        String    @id @default(cuid())
+  postId    String
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  type      MediaType
+  url       String
+  thumbnail String?
+  altText   String?
+  width     Int?
+  height    Int?
+
+  createdAt DateTime  @default(now())
+
+  @@index([postId])
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  GIF
+}
+
+model LinkPreview {
+  id          String   @id @default(cuid())
+  postId      String
+  post        Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  url         String
+  title       String?
+  description String?
+  imageUrl    String?
+  siteName    String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([postId])
+}
+
+// ============================================
+// INTERACTION MODELS
+// ============================================
+
+model Comment {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  content   String   @db.Text
+  parentId  String? // For nested comments
+  parent    Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("CommentReplies")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([postId])
+  @@index([authorId])
+  @@index([parentId])
+}
+
+model Like {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+  @@index([postId])
+  @@index([userId])
+}
+
+// ============================================
+// BOUNTY MODELS
+// ============================================
+
+enum BountyStatus {
+  DRAFT      // Not yet funded
+  OPEN       // Funded and accepting submissions
+  IN_REVIEW  // Deadline passed, reviewing submissions
+  DISPUTED   // Under admin arbitration
+  COMPLETED  // Winners paid out
+  CANCELLED  // Refunded to creator
+  EXPIRED    // Deadline passed with no valid submissions
+}
+
+model Bounty {
+  id               String       @id @default(cuid())
+  postId           String       @unique
+  post             Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  creatorId        String
+  creator          User         @relation("BountyCreator", fields: [creatorId], references: [id])
+
+  // On-chain data
+  contractBountyId String?      // ID in smart contract
+  txHash           String?      // Transaction hash of creation
+
+  // Bounty details
+  title            String
+  description      String       @db.Text
+  requirements     String       @db.Text
+  amount           String       // Total bounty amount in MON (stored as string for precision)
+  maxWinners       Int          @default(1)
+  splitEqually     Boolean      @default(true) // If false, creator decides split
+
+  // Timing
+  deadline         DateTime
+
+  // Status
+  status           BountyStatus @default(DRAFT)
+
+  // Tags/Categories
+  tags             String[]
+
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  // Relations
+  submissions      Submission[]
+  winners          BountyWinner[]
+  disputes         Dispute[]
+
+  @@index([creatorId])
+  @@index([status])
+  @@index([deadline])
+  @@index([tags])
+}
+
+enum SubmissionStatus {
+  PENDING   // Awaiting review
+  APPROVED  // Accepted as winner
+  REJECTED  // Not selected
+  DISPUTED  // Contributor disputes rejection
+}
+
+model Submission {
+  id            String           @id @default(cuid())
+  bountyId      String
+  bounty        Bounty           @relation(fields: [bountyId], references: [id], onDelete: Cascade)
+  contributorId String
+  contributor   User             @relation(fields: [contributorId], references: [id])
+
+  // Submission content
+  content       String           @db.Text
+  attachments   SubmissionAttachment[]
+
+  // Status
+  status        SubmissionStatus @default(PENDING)
+
+  // Feedback from bounty creator
+  feedback      String?          @db.Text
+  rating        Int?             // 1-5 rating from creator
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  // Relations
+  winner        BountyWinner?
+  dispute       Dispute?
+
+  @@unique([bountyId, contributorId])
+  @@index([bountyId])
+  @@index([contributorId])
+  @@index([status])
+}
+
+model SubmissionAttachment {
+  id           String     @id @default(cuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  type         MediaType
+  url          String
+  filename     String?
+
+  createdAt    DateTime   @default(now())
+
+  @@index([submissionId])
+}
+
+model BountyWinner {
+  id           String     @id @default(cuid())
+  bountyId     String
+  bounty       Bounty     @relation(fields: [bountyId], references: [id], onDelete: Cascade)
+  submissionId String     @unique
+  submission   Submission @relation(fields: [submissionId], references: [id])
+
+  // Payout info
+  amount       String     // Amount won (in MON)
+  percentage   Float      // Percentage of total bounty
+  txHash       String?    // Payout transaction hash
+  paidAt       DateTime?
+
+  createdAt    DateTime   @default(now())
+
+  @@index([bountyId])
+}
+
+// ============================================
+// DISPUTE/ARBITRATION MODELS
+// ============================================
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED_FOR_CONTRIBUTOR
+  RESOLVED_FOR_CREATOR
+  DISMISSED
+}
+
+model Dispute {
+  id           String        @id @default(cuid())
+  bountyId     String
+  bounty       Bounty        @relation(fields: [bountyId], references: [id], onDelete: Cascade)
+  submissionId String        @unique
+  submission   Submission    @relation(fields: [submissionId], references: [id])
+
+  // Dispute details
+  reason       String        @db.Text
+  evidence     String?       @db.Text
+
+  // Resolution
+  status       DisputeStatus @default(OPEN)
+  resolution   String?       @db.Text
+  resolvedBy   String?       // Admin wallet address
+  resolvedAt   DateTime?
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([bountyId])
+  @@index([status])
+}
+
+// ============================================
+// NOTIFICATION MODELS
+// ============================================
+
+enum NotificationType {
+  BOUNTY_WON
+  LIKE
+  COMMENT
+  SUBMISSION_RECEIVED
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  type        NotificationType
+  message     String
+
+  recipientId String
+  recipient   User   @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  actorId     String?
+  actor       User?  @relation("NotificationActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  postId      String?
+  bountyId    String?
+
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([recipientId, read])
+  @@index([recipientId, createdAt])
+}
+
+// ============================================
+// PREDICTION GAME MODELS
+// ============================================
+
+enum PredictionPosition {
+  UP
+  DOWN
+}
+
+enum PredictionRoundStatus {
+  LIVE
+  LOCKED
+  RESOLVED
+  CANCELLED
+}
+
+model PredictionRound {
+  id              String                @id @default(cuid())
+  epoch           Int                   @unique
+  startTimestamp   DateTime
+  lockTimestamp    DateTime
+  closeTimestamp   DateTime
+  lockPrice       String?
+  closePrice      String?
+  totalAmount     String                @default("0")
+  upAmount        String                @default("0")
+  downAmount      String                @default("0")
+  status          PredictionRoundStatus @default(LIVE)
+  txHash          String?
+  resolveTxHash   String?
+
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  bets            PredictionBet[]
+
+  @@index([epoch])
+  @@index([status])
+  @@index([closeTimestamp])
+}
+
+model PredictionBet {
+  id              String                @id @default(cuid())
+  roundId         String
+  round           PredictionRound       @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  position        PredictionPosition
+  amount          String
+  claimed         Boolean               @default(false)
+  reward          String?
+  txHash          String?
+  claimTxHash     String?
+
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@unique([roundId, userId])
+  @@index([roundId])
+  @@index([userId])
+}

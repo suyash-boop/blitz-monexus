@@ -1,0 +1,49 @@
+{
+  "name": "monexus",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "postinstall": "prisma generate"
+  },
+  "type": "module",
+  "dependencies": {
+    "@ai-sdk/groq": "^3.0.22",
+    "@neondatabase/serverless": "^1.0.2",
+    "@prisma/adapter-neon": "^7.3.0",
+    "@prisma/client": "^7.3.0",
+    "@privy-io/react-auth": "^3.13.1",
+    "@tanstack/react-query": "^5.90.20",
+    "@uploadthing/react": "^7.3.3",
+    "ai": "^6.0.77",
+    "clsx": "^2.1.1",
+    "dotenv": "^17.2.3",
+    "ethers": "^6.16.0",
+    "lucide-react": "^0.563.0",
+    "next": "16.1.6",
+    "prisma": "^7.3.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tailwind-merge": "^3.4.0",
+    "uploadthing": "^7.7.4",
+    "ws": "^8.19.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^4.0.4",
+    "@openzeppelin/contracts": "^5.4.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "hardhat": "^3.1.7",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
